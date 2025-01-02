@@ -80,15 +80,15 @@ int main() {
     double b[N] = {0.0};
 
 
-    int SM = sysconf (_SC_LEVEL1_DCACHE_LINESIZE) / sizeof(double);
+    // int SM = sysconf (_SC_LEVEL1_DCACHE_LINESIZE) / sizeof(double);
+    constexpr int SM = 1024;
 
     double countBlocked = benchmark("Block Multiplication", [&]() {
-        for (int jBlock = 0; jBlock < N; jBlock += SM) {
-            for (int iBlock = 0; iBlock < N; iBlock += SM) { // reuse for vector
-                for (int i = iBlock; i < iBlock + SM; i++) {
-                    for (int j = jBlock; j < jBlock + SM; j++) {
+        for (size_t jBlock = 0; jBlock < N; jBlock += SM) {
+            for (size_t iBlock = 0; iBlock < N; iBlock += SM) { // reuse for vector
+                for (size_t i = iBlock; i < iBlock + SM; i++) {
+                    for (size_t j = jBlock; j < jBlock + SM; j++) {
                         b[i] += A[i][j] * x[j];
-                    
                     }
                 }                
             }
