@@ -1,11 +1,9 @@
 #include <iostream>
 #include <chrono>
-#include <emmintrin.h>
-#include <xmmintrin.h>
 #include <vector>
 #include <random>
-#include <cstdlib> 
-#include <unistd.h>
+#include <cmath>
+#include <algorithm>
 
 using namespace std;
 using namespace std::chrono;
@@ -32,19 +30,20 @@ std::vector<std::vector<double>> genRandMatrixDouble(size_t N) {
             matrix[i][j] = distrib(gen);
         }
     }
-
     return matrix;
 }
 
-bool compareArrays(const double* b, const double* seq_result, size_t N) {
-    if (!std::equal(b, b + N, seq_result)) {
-        return false;
+bool compareArraysWithTolerance(const std::vector<double>& b, const std::vector<double>& seq_result, double epsilon = 1e-9) {
+    for (size_t i = 0; i < b.size(); ++i) {
+        if (std::abs(b[i] - seq_result[i]) > epsilon) {
+            cout << "Mismatch at index " << i << ": b[i] = " << b[i] << ", seq_result[i] = " << seq_result[i] << endl;
+            return false;
+        }
     }
-
     return true;
 }
 
-auto benchmark(const string& name, auto func) -> double {
+auto benchmark(auto func) -> double {
     auto start = high_resolution_clock::now();
     func();
     auto end = high_resolution_clock::now();
@@ -52,55 +51,58 @@ auto benchmark(const string& name, auto func) -> double {
 
     auto nano = duration_cast<nanoseconds>(end - start);
 
-    cout << name << ": " << nano.count() << " nanoseconds" << endl;
-
-    cout << name << ": " << durationSec.count() << " seconds" << endl;
     return durationSec.count();
 }
 
 int main() {
-    const size_t N = 32768;
+    size_t N = 8000;
 
     auto A = genRandMatrixDouble(N);
     auto x = genRandVectorDouble(N);
 
-    double seq_result[N] = {0.0};
+    std::vector<double> seq_result(N, 0.0);
 
-    double countRegular = benchmark("Regular", [&]() {
-        for (int Arow = 0; Arow < N; ++Arow) {
-            for (int Acol = 0; Acol < N; ++Acol) {
-                seq_result[Arow] += A[Arow][Acol] * x[Acol];
+    double totalRegularTime = 0.0;
+    double totalBlockedTime = 0.0;
+
+    for (int i = 0; i < 100; ++i) {
+        totalRegularTime += benchmark([&]() {
+            std::fill(seq_result.begin(), seq_result.end(), 0.0);
+            for (size_t Arow = 0; Arow < N; ++Arow) {
+                for (size_t Acol = 0; Acol < N; ++Acol) {
+                    seq_result[Arow] += A[Arow][Acol] * x[Acol];
+                }
             }
-        }
-    });
+        });
+    }
 
-    // This is all sequential access
+    std::vector<double> b(N, 0.0);
+    constexpr size_t SM = 16;  
 
-
-    double b[N] = {0.0};
-
-
-    // int SM = sysconf (_SC_LEVEL1_DCACHE_LINESIZE) / sizeof(double);
-    constexpr int SM = 1024;
-
-    double countBlocked = benchmark("Block Multiplication", [&]() {
-        for (size_t jBlock = 0; jBlock < N; jBlock += SM) {
-            for (size_t iBlock = 0; iBlock < N; iBlock += SM) { // reuse for vector
-                for (size_t i = iBlock; i < iBlock + SM; i++) {
-                    for (size_t j = jBlock; j < jBlock + SM; j++) {
-                        b[i] += A[i][j] * x[j];
+    for (int i = 0; i < 100; ++i) {
+        totalBlockedTime += benchmark([&]() {
+            std::fill(b.begin(), b.end(), 0.0);
+            for (size_t iBlock = 0; iBlock < N; iBlock += SM) {
+                for (size_t jBlock = 0; jBlock < N; jBlock += SM) {
+                    for (size_t i = iBlock; i < std::min(iBlock + SM, N); i++) {
+                        double temp = 0.0;
+                        for (size_t j = jBlock; j < std::min(jBlock + SM, N); j++) {
+                            temp += A[i][j] * x[j];
+                        }
+                        b[i] += temp;
                     }
-                }                
+                }
             }
-        }
-    });
+        });
+    }
 
-    if (!compareArrays(b, seq_result, N)) {
+    std::cout << "Average Regular Time: " << totalRegularTime / 100.0 << " seconds" << std::endl;
+    std::cout << "Average Block Multiplication Time: " << totalBlockedTime / 100.0 << " seconds" << std::endl;
+
+    if (!compareArraysWithTolerance(b, seq_result)) {
         std::cout << "Result vectors are not identical." << std::endl;
     } else {
         std::cout << "Result vectors are the same." << std::endl;
-
-
     }
 
     return 0;
