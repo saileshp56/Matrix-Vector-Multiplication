@@ -55,7 +55,7 @@ auto benchmark(auto func) -> double {
 }
 
 int main() {
-    size_t N = 8000;
+    constexpr size_t N = 8000;
 
     auto A = genRandMatrixDouble(N);
     auto x = genRandVectorDouble(N);
